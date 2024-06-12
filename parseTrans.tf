@@ -77,22 +77,28 @@ resource "aws_lambda_function" "ParseSpeechRecog" {
   }
 }
 
-resource "aws_lambda_permission" "autoSpeechRecogPermission" {
-  statement_id  = "AllowExecutionFromS3Bucket"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.autoSpeechRecog.function_name
-  principal     = "s3.amazonaws.com"
-  source_arn    = aws_s3_bucket.mySourceBucket.arn
+resource "aws_cloudwatch_event_rule" "eventRule" {
+  name        = "eventRule"
+  description = "Rule to trigger lambda to stop all instances at a specific time"
+
+  event_pattern = jsonencode({
+    source        = ["aws.transcribe"],
+    "detail-type" = ["Transcribe Job State Change"],
+    detail = {
+      TranscriptionJobStatus = ["COMPLETED"]
+    }
+  })
 }
 
-resource "aws_s3_bucket_notification" "bucketNotification" {
-  bucket = aws_s3_bucket.mySourceBucket.id
+resource "aws_cloudwatch_event_target" "ParseSpeech" {
+  rule      = aws_cloudwatch_event_rule.eventRule.name
+  arn       = aws_lambda_function.ParseSpeechRecog.arn
+  target_id = "ParseSpeech"
+}
 
-  lambda_function {
-    lambda_function_arn = aws_lambda_function.autoSpeechRecog.arn
-    events              = ["s3:ObjectCreated:*"]
-    filter_prefix       = "source/"
-  }
-
-  depends_on = [aws_lambda_permission.autoSpeechRecogPermission]
+resource "aws_lambda_permission" "ec2_stop_perm" {
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.ParseSpeechRecog.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.eventRule.arn
 }
